@@ -32,3 +32,4 @@ if __name__ == "__main__":
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"  # Temporary fix if needed
     chunks = load_and_split_pdfs("manuals")  # Folder containing your PDF manuals
     build_faiss_index(chunks)
+python build_index.py

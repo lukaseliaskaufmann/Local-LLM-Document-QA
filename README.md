@@ -4,7 +4,25 @@ A local, offline, privacy-respecting Q&A app to help **Daikin air conditioner se
 
 ![Imag](./image/README/SMA.png)
 
----
+
+## Flowchart
+
+User types question in Streamlit UI
+           │
+        app.py
+           │
+     ↓ Vector search
+           │
+  FAISS Index (faiss_index/)
+           │
+   Embeddings from sentence-transformers
+           │
+        Ollama LLM (Mistral)
+           │
+        ↓ Answer
+  Displayed with page number + PDF name
+
+
 
 ## 🎯 Purpose
 

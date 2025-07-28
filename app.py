@@ -1,92 +1,69 @@
-# app.py
 import os
 import streamlit as st
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
 from langchain_community.llms import Ollama
-from langchain.callbacks.streamlit import StreamlitCallbackHandler
 
-# Streamlit UI configuration
-st.set_page_config(page_title="Service Manual Assistant", page_icon="📘")
-st.title("📘 Service Manual Assistant")
-st.write("Ask anything from your indexed service manuals. Responses will stream as they arrive.")
+# --- Streamlit Page Config ---
+st.set_page_config(page_title="Daikin Service Manual Assistant", page_icon="📘")
+st.title("📘 Daikin Service Manual Assistant")
+st.caption("Ask anything from your service manuals. Everything runs **offline**.")
 
-# Sidebar for retrieval settings
-st.sidebar.header("Settings")
-k = st.sidebar.slider("Number of docs to retrieve (k)", 1, 20, 10)
+# --- Cached Resources ---
 
-# Cache embeddings
+@st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
+        model_name="sentence-transformers/all-mpnet-base-v2",
+        model_kwargs={"device": "mps"}  # or "cpu" if MPS isn't stable
     )
-load_embeddings = st.cache_resource(load_embeddings)
 
-# Cache FAISS vector store
+@st.cache_resource
 def load_vectorstore(_embeddings):
-    index_dir = "faiss_index"
-    if not os.path.isdir(index_dir):
-        st.error("FAISS index not found. Please run `index.py` first to generate the index.")
-        return None
-    return FAISS.load_local(
-        index_dir,
-        _embeddings,
-        allow_dangerous_deserialization=True
-    )
-load_vectorstore = st.cache_resource(load_vectorstore)
+    return FAISS.load_local("faiss_index", _embeddings, allow_dangerous_deserialization=True)
 
-# Cache Ollama LLM
+
+@st.cache_resource
 def load_llm():
     try:
-        return Ollama(model="mistral")
+        return Ollama(model="mistral")  # Change to your preferred local model
     except Exception as e:
-        st.error(f"Could not connect to Ollama: {e}. Ensure Ollama is running locally.")
+        st.error(f"❌ Could not connect to Ollama: {e}")
         return None
-load_llm = st.cache_resource(load_llm)
 
-# Initialize components
-embeddings = load_embeddings()
-vectorstore = load_vectorstore(embeddings)
-llm = load_llm()
-qa_chain = None
-if vectorstore and llm:
-    retriever = vectorstore.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": k}
-    )
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=retriever,
-        return_source_documents=True
-    )
+@st.cache_resource
+def load_qa_chain():
+    embeddings = load_embeddings()
+    vectorstore = load_vectorstore(embeddings)
+    retriever = vectorstore.as_retriever(search_type="similarity", k=13)
+    llm = load_llm()
+    if not llm:
+        return None
+    return RetrievalQA.from_chain_type(llm=llm, retriever=retriever, return_source_documents=True)
 
-# User input
-query = st.text_input("Your question:", key="manual_query")
+# --- Run QA ---
+
+qa_chain = load_qa_chain()
+
+query = st.text_input("🔍 Your question", placeholder="e.g. My LED is blinking red...")
+
 if query:
-    if not qa_chain:
-        st.error("QA chain not available. Please check your index and Ollama setup.")
+    if qa_chain:
+        with st.spinner("🤖 Thinking..."):
+            try:
+                result = qa_chain.invoke({"query": query})
+                st.success(result["result"])
+
+                # Show sources
+                if result.get("source_documents"):
+                    st.markdown("#### 📄 Sources:")
+                    for i, doc in enumerate(result["source_documents"]):
+                        page = doc.metadata.get("page", "unknown")
+                        file = doc.metadata.get("source_file", "unknown file")
+                        st.info(f"**Source {i+1}:** Page `{page}` from `{file}`")
+
+            except Exception as e:
+                st.error(f"❌ Error during query: {e}")
     else:
-        st.chat_message("user").write(query)
-        container = st.chat_message("assistant")
-        stream_handler = StreamlitCallbackHandler(parent_container=container)
-
-        # Debug: show retrieved snippets
-        docs = retriever.get_relevant_documents(query)
-        st.write(f"🔍 Retrieved {len(docs)} documents for query: '{query}'")
-        for i, doc in enumerate(docs[:3]):
-            snippet = doc.page_content.replace("\n", " ")[:200]
-            st.write(f"Doc {i+1} snippet: {snippet}...")
-
-        # Stream the answer
-        try:
-            result = qa_chain({"query": query}, callbacks=[stream_handler])
-            if result and "source_documents" in result:
-                st.markdown("#### Sources:")
-                for i, src in enumerate(result["source_documents"]):
-                    file = src.metadata.get("source_file", "unknown file")
-                    page = src.metadata.get("page", "unknown page")
-                    st.info(f"Source {i+1}: `{file}` (page {page})")
-        except Exception as e:
-            st.error(f"Failed to get an answer: {e}")
-
+        st.warning("⚠️ QA chain is not available. Ensure Ollama is running with the required model.")

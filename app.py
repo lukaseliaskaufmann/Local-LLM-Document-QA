@@ -1,14 +1,14 @@
 import os
-import re
 import streamlit as st
+import re
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
-from langchain.chains import ConversationalRetrievalChain
+from langchain.chains import ConversationalRetrievalChain, RetrievalQA
 from langchain.memory import ConversationBufferMemory
 from langchain_community.llms import Ollama
 
-# --- Strict Prompt ---
+# --- Strict Prompt (with history) ---
 strict_prompt = PromptTemplate(
     input_variables=["context", "question", "chat_history"],
     template="""
@@ -27,24 +27,29 @@ Question: {question}
 Answer:"""
 )
 
-# --- Regex to detect model names ---
-def infer_model_name_from_text(text: str) -> str:
-    t = text.upper()
-    # Improved regex: catches REYQ plus any underscores, hyphens, alphanumerics
-    m = re.search(r"\bREYQ[_A-Z0-9-]*\b", t)
-    if m:
-        return m.group(0)
-    # Fallback to common Daikin codes (FTX, RX, FVX, RXS, FTXS)
-    m = re.search(r"\b(FTX|RX|FVX|RXS|FTXS)[\w-]*\b", t)
-    return m.group(0) if m else "UNKNOWN"
+# --- Simple Prompt (no history) ---
+simple_prompt = PromptTemplate(
+    input_variables=["context", "question"],
+    template="""
+You are a helpful assistant that answers questions using the provided context from Daikin service manuals.
 
-# --- Streamlit Config ---
+Only use the context below to answer the question.
+If the answer is not in the context, say "I don't know."
+
+Context:
+{context}
+
+Question: {question}
+Answer:"""
+)
+
+# --- Streamlit App Config ---
 st.set_page_config(page_title="Daikin Service Manual Assistant", page_icon="📘")
 st.title("📘 Daikin Service Manual Assistant")
 st.caption("Ask anything from your service manuals. Everything runs **offline**.")
 st.caption("💡 Answers are based only on the actual content in the PDF manuals.")
 
-# --- Initialize chat history in session ---
+# --- Session State Initialization ---
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
 
@@ -73,48 +78,34 @@ def load_llm():
         st.error(f"❌ Could not connect to Ollama: {e}")
         return None
 
-# --- Load vectorstore & debug ---
+# --- Load Vectorstore & Model List ---
 vs = load_vectorstore()
-st.write(
-    "Index models:",
-    sorted({doc.metadata.get("model_name") for doc in vs.docstore._dict.values()})
-)
+model_options = sorted({doc.metadata.get("model_name") for doc in vs.docstore._dict.values() if doc.metadata.get("model_name")})
+# Debug print
+st.write("Index models:", model_options)
 
-# --- Sidebar: Model selection ---
-st.sidebar.header("🛠️ Model Selection")
-mode = st.sidebar.radio("Mode", ["Manual", "Auto-detect"])
+# --- Sidebar: Mode Selection ---
+st.sidebar.header("🛠️ Mode Selection")
+mode = st.sidebar.radio("Mode", ["Manual", "Ask across all models"])
 
-selected_model = None
-query = None
-if mode == "Manual":
-    options = sorted({doc.metadata.get("model_name") for doc in vs.docstore._dict.values() if doc.metadata.get("model_name")})
-    selected_model = st.sidebar.selectbox("Select Model", options)
-    query = st.text_input("Your question")
-else:
-    query = st.text_input("Your question")
-    if query:
-        detected = infer_model_name_from_text(query)
-        if detected == "UNKNOWN":
-            st.sidebar.warning("Could not detect model; please choose manually.")
-            options = sorted({doc.metadata.get("model_name") for doc in vs.docstore._dict.values() if doc.metadata.get("model_name")})
-            selected_model = st.sidebar.selectbox("Select Model", options)
-        else:
-            selected_model = detected
-            st.sidebar.markdown(f"Detected: `{selected_model}`")
+# --- Mode setup ---
+if mode == "Manual":  # Single-model mode
+    selected_model = st.sidebar.selectbox("Select Model", model_options)
+    st.sidebar.write(f"🔍 Manual mode: searching only {selected_model}")
+elif mode == "Ask across all models":  # Ask across all-models mode
+    selected_model = None
+    st.sidebar.write("🔍 Ask across all models mode: searching all manuals")
 
-if not selected_model:
-    st.warning("Select or detect a Daikin model to continue.")
+# --- Query Input ---
+query = st.text_input("Your question")
+if not query:
     st.stop()
 
-# --- Build conversational QA chain ---
+# --- Build Retrieval QA Chain with Memory ---
 def build_chain(model_name: str):
     retriever = vs.as_retriever(
         search_type="similarity",
-        search_kwargs={
-            "filter": {"model_name": model_name},
-            "k": 7,
-            "fetch_k": 50,
-        }
+        search_kwargs={"filter": {"model_name": model_name}, "k": 7, "fetch_k": 50}
     )
     memory = ConversationBufferMemory(
         memory_key="chat_history",
@@ -133,24 +124,64 @@ def build_chain(model_name: str):
         return_source_documents=True
     )
 
-chain = build_chain(selected_model)
-if not chain:
-    st.warning("QA chain init failed. Is Ollama up?")
-    st.stop()
+# --- Build Simple Retrieval QA Chain (no memory) ---
+def build_simple_chain(model_name: str):
+    retriever = vs.as_retriever(
+        search_type="similarity",
+        search_kwargs={"filter": {"model_name": model_name}, "k": 7, "fetch_k": 50}
+    )
+    llm = load_llm()
+    if not llm:
+        return None
+    return RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=retriever,
+        chain_type="stuff",
+        chain_type_kwargs={"prompt": simple_prompt},
+        return_source_documents=True
+    )
 
-# --- Ask & process ---
-if query:
-    with st.spinner("Thinking..."):
-        result = chain({"question": query})
-        ans = result.get("answer", "")
-        st.success(ans)
-        entry = {"question": query, "answer": ans, "sources": []}
-        if not ans.lower().startswith("i don't know"):
-            docs = result.get("source_documents", [])
-            entry["sources"] = docs
-            st.markdown("#### Sources:")
-            for i, doc in enumerate(docs, 1):
-                p = doc.metadata.get("page", "?")
-                f = doc.metadata.get("source_file", "?")
-                st.info(f"{i}. Page {p} from {f}")
-        st.session_state["chat_history"].append(entry)
+# --- Ask & Process ---
+with st.spinner("🤖 Thinking..."):
+    if mode == "Manual":
+        chain = build_chain(selected_model)
+        if not chain:
+            st.warning("QA chain init failed. Is Ollama running?")
+        else:
+            result = chain({"question": query})
+            ans = result.get("answer", "")
+            st.subheader(f"Model: {selected_model}")
+            if ans.lower().startswith("i don't know"):
+                st.info("No information found for this model.")
+            else:
+                st.success(ans)
+                st.markdown("#### Sources:")
+                for i, doc in enumerate(result.get("source_documents", []), 1):
+                    p = doc.metadata.get("page", "?")
+                    f = doc.metadata.get("source_file", "?")
+                    st.info(f"{i}. Page {p} from {f}")
+        # Save to history
+        st.session_state["chat_history"].append({"question": query, "answer": ans})
+        
+    else:  # Ask across all models
+        st.header("🔍 Ask across all models: results for all manuals")
+        # display results side by side
+        cols = st.columns(len(model_options))
+        for col, model in zip(cols, model_options):
+            with col:
+                st.subheader(f"Model: {model}")
+                simple_chain = build_simple_chain(model)
+                if not simple_chain:
+                    st.warning(f"Chain init failed for {model}.")
+                    continue
+                result = simple_chain({"query": query})
+                ans = result.get("result", "")
+                if ans.lower().startswith("i don't know"):
+                    st.info("No information found for this model.")
+                else:
+                    st.success(ans)
+                    st.markdown("#### Sources:")
+                    for i, doc in enumerate(result.get("source_documents", []), 1):
+                        p = doc.metadata.get("page", "?")
+                        f = doc.metadata.get("source_file", "?")
+                        st.info(f"{i}. Page {p} from {f}")

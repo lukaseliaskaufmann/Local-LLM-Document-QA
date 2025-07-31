@@ -1,6 +1,6 @@
 import os
-import streamlit as st
 import re
+import streamlit as st
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
@@ -47,7 +47,7 @@ Answer:"""
 st.set_page_config(page_title="Daikin Service Manual Assistant", page_icon="📘")
 st.title("📘 Daikin Service Manual Assistant")
 st.caption("Ask anything from your service manuals. Everything runs **offline**.")
-st.caption("💡 Answers are based only on the actual content in the PDF manuals.")
+st.caption("Answers are based only on the actual content in the PDF manuals.")
 
 # --- Session State Initialization ---
 if "chat_history" not in st.session_state:
@@ -75,24 +75,34 @@ def load_llm():
     try:
         return Ollama(model="mistral")
     except Exception as e:
-        st.error(f"❌ Could not connect to Ollama: {e}")
+        st.error(f"Could not connect to Ollama: {e}")
         return None
 
-# --- Load Vectorstore & Model List ---
+# --- Load Vectorstore & Wrap Docstore for .search() ---
 vs = load_vectorstore()
-model_options = sorted({doc.metadata.get("model_name") for doc in vs.docstore._dict.values() if doc.metadata.get("model_name")})
-# Debug print
+# If docstore is a raw dict, wrap it to provide a .search() method
+if isinstance(vs.docstore, dict):
+    class _DocstoreWrapper(dict):
+        def search(self, key):
+            return super().__getitem__(key)
+    vs.docstore = _DocstoreWrapper(vs.docstore)
+
+# Build model options from metadata
+model_options = sorted({
+    doc.metadata.get("model_name")
+    for doc in vs.docstore.values()
+    if doc.metadata.get("model_name")
+})
 st.write("Index models:", model_options)
 
 # --- Sidebar: Mode Selection ---
 st.sidebar.header("🛠️ Mode Selection")
 mode = st.sidebar.radio("Mode", ["Manual", "Ask across all models"])
 
-# --- Mode setup ---
-if mode == "Manual":  # Single-model mode
+if mode == "Manual":
     selected_model = st.sidebar.selectbox("Select Model", model_options)
     st.sidebar.write(f"🔍 Manual mode: searching only {selected_model}")
-elif mode == "Ask across all models":  # Ask across all-models mode
+else:
     selected_model = None
     st.sidebar.write("🔍 Ask across all models mode: searching all manuals")
 
@@ -128,7 +138,7 @@ def build_chain(model_name: str):
 def build_simple_chain(model_name: str):
     retriever = vs.as_retriever(
         search_type="similarity",
-        search_kwargs={"filter": {"model_name": model_name}, "k": 7, "fetch_k": 50}
+        search_kwargs={"filter": {"model_name": model_name}, "k": 14, "fetch_k": 50}
     )
     llm = load_llm()
     if not llm:
@@ -142,7 +152,7 @@ def build_simple_chain(model_name: str):
     )
 
 # --- Ask & Process ---
-with st.spinner("🤖 Thinking..."):
+with st.spinner("Thinking..."):
     if mode == "Manual":
         chain = build_chain(selected_model)
         if not chain:
@@ -155,17 +165,19 @@ with st.spinner("🤖 Thinking..."):
                 st.info("No information found for this model.")
             else:
                 st.success(ans)
-                st.markdown("#### Sources:")
-                for i, doc in enumerate(result.get("source_documents", []), 1):
-                    p = doc.metadata.get("page", "?")
-                    f = doc.metadata.get("source_file", "?")
-                    st.info(f"{i}. Page {p} from {f}")
-        # Save to history
+                st.markdown("#### Source:")
+                docs = result.get("source_documents", [])
+                if docs:
+                    top = docs[0]
+                    p = top.metadata.get("page", "?")
+                    f = top.metadata.get("source_file", "?")
+                    st.info(f"Page {p} from {f}")
+                else:
+                    st.info("No sources found.")
         st.session_state["chat_history"].append({"question": query, "answer": ans})
-        
-    else:  # Ask across all models
+
+    else:
         st.header("🔍 Ask across all models: results for all manuals")
-        # display results side by side
         cols = st.columns(len(model_options))
         for col, model in zip(cols, model_options):
             with col:

@@ -63,15 +63,6 @@ def embed_chunks(chunks: List, device: str = "cpu") -> (np.ndarray, HuggingFaceE
     return np.array(embeds), hf
 
 
-def reduce_dimensionality(vectors: np.ndarray, out_dim: int = 256):
-    """Train a FAISS PCA and apply it."""
-    d = vectors.shape[1]
-    pca = faiss.PCAMatrix(d, out_dim)
-    pca.train(vectors)
-    reduced = pca.apply_py(vectors)
-    return pca, reduced
-
-
 def build_ivfpq_index(vectors: np.ndarray, nlist: int = 32, m: int = 64, bits: int = 8):
     """Train and build an IVF-PQ index on the given vectors."""
     d = vectors.shape[1]
@@ -97,24 +88,19 @@ if __name__ == "__main__":
     vectors, hf = embed_chunks(chunks, device="cpu")
     print("Embedded all chunks")
 
-    # 3) PCA reduction (optional)
-    pca, reduced = reduce_dimensionality(vectors, out_dim=256)
-    faiss.write_VectorTransform(pca, os.path.join(INDEX_DIR, "pca.bin"))
-    print("PCA reduction complete")
-
-    # 4) Build IVF-PQ index
-    ivfpq = build_ivfpq_index(reduced, nlist=32, m=64, bits=6)
+    # 3) Build IVF-PQ index without PCA reduction
+    ivfpq = build_ivfpq_index(vectors, nlist=32, m=64, bits=6)
     print("IVF-PQ index built")
 
-    # 5) Wrap PCA + IVF-PQ so that query embeddings are reduced automatically
-    index = faiss.IndexPreTransform(pca, ivfpq)
+    # 4) Use the trained index directly
+    index = ivfpq
 
-    # 6) Instantiate LangChain FAISS WITHOUT re-embedding
+    # 5) Instantiate LangChain FAISS WITHOUT re-embedding
     docstore = {i: chunks[i] for i in range(len(chunks))}
     id_map   = {i: i          for i in range(len(chunks))}
 
     vs = LCFAISS(
-        embedding_function=hf,          
+        embedding_function=hf,
         index=index,
         docstore=docstore,
         index_to_docstore_id=id_map,

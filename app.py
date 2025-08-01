@@ -13,6 +13,7 @@ strict_prompt = PromptTemplate(
     input_variables=["context", "question", "chat_history"],
     template="""
 You are a helpful assistant that answers questions using the provided context from Daikin service manuals.
+Give long detailed asnwer.
 
 Use the conversation history below to maintain context.
 If the answer is not in the context, say "I don't know."
@@ -67,7 +68,7 @@ def load_vectorstore():
     return FAISS.load_local(
         "faiss_index",
         embeddings,
-        allow_dangerous_deserialization=True
+        allow_dangerous_deserialization=True # Allows loading pickled FAISS metadata; only use with trusted local files due to security risks.
     )
 
 @st.cache_resource
@@ -80,7 +81,7 @@ def load_llm():
 
 # --- Load Vectorstore & Wrap Docstore for .search() ---
 vs = load_vectorstore()
-# If docstore is a raw dict, wrap it to provide a .search() method
+# If docstore is a raw dict, wrap it to provide a .search() method (debug)
 if isinstance(vs.docstore, dict):
     class _DocstoreWrapper(dict):
         def search(self, key):
@@ -96,15 +97,15 @@ model_options = sorted({
 st.write("Index models:", model_options)
 
 # --- Sidebar: Mode Selection ---
-st.sidebar.header("🛠️ Mode Selection")
+st.sidebar.header("Mode Selection")
 mode = st.sidebar.radio("Mode", ["Manual", "Ask across all models"])
 
 if mode == "Manual":
     selected_model = st.sidebar.selectbox("Select Model", model_options)
-    st.sidebar.write(f"🔍 Manual mode: searching only {selected_model}")
+    st.sidebar.write(f" Manual mode: searching only {selected_model}")
 else:
     selected_model = None
-    st.sidebar.write("🔍 Ask across all models mode: searching all manuals")
+    st.sidebar.write("Ask across all models mode: searching all manuals")
 
 # --- Query Input ---
 query = st.text_input("Your question")
@@ -138,7 +139,7 @@ def build_chain(model_name: str):
 def build_simple_chain(model_name: str):
     retriever = vs.as_retriever(
         search_type="similarity",
-        search_kwargs={"filter": {"model_name": model_name}, "k": 14, "fetch_k": 50}
+        search_kwargs={"filter": {"model_name": model_name}, "k": 7, "fetch_k": 50}
     )
     llm = load_llm()
     if not llm:
@@ -177,7 +178,7 @@ with st.spinner("Thinking..."):
         st.session_state["chat_history"].append({"question": query, "answer": ans})
 
     else:
-        st.header("🔍 Ask across all models: results for all manuals")
+        st.header("Ask across all models: results for all manuals")
         cols = st.columns(len(model_options))
         for col, model in zip(cols, model_options):
             with col:

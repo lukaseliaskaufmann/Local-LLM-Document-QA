@@ -1,165 +1,29 @@
 # 📘 Daikin Service Manual Assistant
 
-A local, offline, privacy-respecting Q&A app to help **Daikin air conditioner service technicians in India** understand and troubleshoot equipment using natural language.
+This is an **offline AI-powered assistant** for querying Daikin service manuals using local PDFs. The assistant uses **LangChain**, **FAISS**, **HuggingFace Embeddings**, and **Ollama (Mistral)** to answer technical questions based on indexed content from your PDF manuals.
 
-![Imag](./image/README/SMA.png)
-
-
-## Flowchart
-
-User types question in Streamlit UI
-           │
-        app.py
-           │
-     ↓ Vector search
-           │
-  FAISS Index (faiss_index/)
-           │
-   Embeddings from sentence-transformers
-           │
-        Ollama LLM (Mistral)
-           │
-        ↓ Answer
-  Displayed with page number + PDF name
-
-
-
-## 🎯 Purpose
-
-This assistant was built specifically for **Daikin AC service workers in India**, many of whom may not be highly literate or technically trained. The goal is to:
-
-- 💬 Allow asking questions in simple natural language (voice planned)
-- 🔊 Enable reading answers aloud (planned)
-- 🧠 Provide accurate, page-specific answers from Daikin service manuals
-- 🇮🇳 Run fully **offline and locally**, with no internet required
-
-> ✅ *Voice input and output are planned but **not implemented yet.***
+> 🚀 Ask detailed questions, get grounded answers—100% offline.
 
 ---
 
-## 🚀 Features
+## 🧠 Why I Built This
 
-- Ask natural-language questions about Daikin AC manuals
-- Semantic search using FAISS vector store
-- Get answers along with **page number** and **manual file name**
-- Smart chunking and embedding of PDF pages
-- Clean and simple Streamlit UI
-- 100% offline — privacy-respecting and fast
+As a technician working with Daikin systems, I constantly found myself digging through bulky PDF manuals to find error codes, wiring diagrams, or part numbers—especially in the field, where internet access isn’t always reliable.
+
+I built this tool to **save time**, **reduce friction**, and **bring AI assistance offline**, directly into the hands of technicians and engineers—no cloud, no internet, just answers.
 
 ---
 
-## ✅ Requirements
+## 🔧 Features
 
-- Python 3.10+
-- [Ollama](https://ollama.ai) (for local LLM like `mistral`)
-- Optional: `conda` (to avoid MKL issues)
-- *Planned voice features will need `speechrecognition` and `pyttsx3` or `gTTS`*
-
----
-
-## 🔧 Setup Instructions
-
-### Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### Start Ollama and download your model
-
-```bash
-ollama run mistral
-```
+- **Offline LLM access** via [Ollama](https://ollama.com/) and the `mistral` model
+- **PDF ingestion**, chunking, and metadata tagging
+- **Vector embedding** using `sentence-transformers/all-mpnet-base-v2`
+- **FAISS IVFPQ indexing** for fast retrieval
+- **Two QA modes**:
+  - Manual (search one model only)
+  - Global (search across all manuals)
+- **Context-aware conversations** using memory
+- Fully **runs offline** — local models, local documents
 
 ---
-
-## 📄 Add Your Manuals
-
-Place your PDF service manuals inside the `manuals/` folder:
-
-```
-manuals/
-├── daikin_split_ac_manual.pdf
-├── troubleshooting_guide.pdf
-└── error_codes.pdf
-```
-
----
-
-## 🧠 Build the Vector Index
-
-Before running the app, build the FAISS index (run this only when adding new PDFs):
-
-```bash
-python build_index.py
-```
-
----
-
-## 💬 Launch the Assistant
-
-Start the app with:
-
-```bash
-Streamlit run app.py
-```
-
----
-
-## How to Use
-
-- Type a question like:
-
-```
-Why is the red light blinking on the outdoor unit?
-```
-
-- You'll receive:
-  - A helpful answer
-  - The page number where it was found
-  - The PDF file name
-
----
-
-## 🔉 Voice Support (Planned Feature)
-
-We aim to add **voice input and text-to-speech output** in a future version:
-
-- 🎙️ Mic input via `speechrecognition`
-- 🗣️ Text-to-speech via `pyttsx3` or `gTTS`
-- 🈯 Support for Indian languages like Hindi, Tamil, Bengali, etc.
-
-> These features are **not included yet**, but the system is designed with them in mind.
-
----
-
-## 🛠️ Optional Improvements
-
-- Add voice support (planned)
-- Collapsible document source preview
-- PDF viewer integration
-- Mobile-friendly interface
-- Docker container for easy deployment
-
----
-
-## 🧪 Tech Stack
-
-| Component    | Technology                     |
-| ------------ | ------------------------------ |
-| Embeddings   | sentence-transformers (MiniLM) |
-| Vector Store | FAISS                          |
-| PDF Loader   | PyMuPDFLoader (LangChain)      |
-| Chunking     | LangChain Recursive Splitter   |
-| LLM          | Ollama (e.g., mistral)         |
-| UI           | Streamlit                      |
-
----
-
-## 🤝 Acknowledgments
-
-- [LangChain](https://www.langchain.com/)
-- [Hugging Face](https://huggingface.co/)
-- [Ollama](https://ollama.ai/)
-- [Streamlit](https://streamlit.io/)
-- Daikin technicians who inspired this project 💙

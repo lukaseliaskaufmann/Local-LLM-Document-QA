@@ -65,9 +65,3 @@ This ensures:
 | **Input Format** | PDF service manuals                          |
 | **Output**       | Textual QA with source-grounded responses    |
 
----
-
-> 🧪 **Tech Preview:** Ideal for technicians, integrators, and internal tooling where offline access, speed, and data privacy are critical.
-
-> 🧪 **Tech Preview:** Ideal for technicians, integrators, and internal tooling where offline access, speed, and data privacy are critical.
-

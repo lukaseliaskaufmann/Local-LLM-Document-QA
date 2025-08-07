@@ -94,7 +94,7 @@ model_options = sorted({
     for doc in vs.docstore.values()
     if doc.metadata.get("model_name")
 })
-st.write("Index models:", model_options)
+#st.write("Index models:", model_options)
 
 # --- Sidebar: Mode Selection ---
 st.sidebar.header("Mode Selection")
@@ -116,7 +116,11 @@ if not query:
 def build_chain(model_name: str):
     retriever = vs.as_retriever(
         search_type="similarity",
-        search_kwargs={"filter": {"model_name": model_name}, "k": 7, "fetch_k": 50}
+        search_kwargs = {
+            "filter": {"model_name": selected_model},  # only search chunks from a specific model
+            "k": 7,            # return the top 7 most relevant results
+            "fetch_k": 50      # initially retrieve 50 approximate matches before filtering/scoring
+        }
     )
     memory = ConversationBufferMemory(
         memory_key="chat_history",

@@ -27,3 +27,7 @@ I built this tool to **save time**, **reduce friction**, and **bring AI assistan
 - Fully **runs offline** — local models, local documents
 
 ---
+
+
+
+run app.py for streamlit UI.
